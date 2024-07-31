@@ -1,9 +1,9 @@
 #!/bin/bash
-#
+
 # Bash script that automates log file management
 # by copying the contents of the /var/log/messages file
 # to a new file named /var/log/messages.old with a timestamp.
-# Now supports command-line options and configuration files.
+# Now includes advanced debugging, performance optimization, and CPU utilization monitoring.
 
 # Default configurations
 LOG_FILE="/var/log/messages"
@@ -13,6 +13,8 @@ REPORT_FILE="$BACKUP_DIR/log_analysis_report.txt"
 MAX_BACKUPS=5
 ANALYSIS_CRITERIA="error,warning,critical"
 REPORT_FORMAT="txt"
+DEBUG=false
+CPU_MONITOR_INTERVAL=5
 
 # Function to display help message
 function show_help {
@@ -25,14 +27,8 @@ function show_help {
     echo "  -a, --analysis       Comma-separated list of analysis criteria (default: error,warning,critical)"
     echo "  -f, --format         Report format (txt or json) (default: txt)"
     echo "  -c, --config         Path to configuration file"
+    echo "  -d, --debug          Enable debugging"
     echo "  -h, --help           Display this help message"
-    echo
-    echo "Configuration File Example:"
-    echo "LOG_FILE=/var/log/custom_messages"
-    echo "BACKUP_DIR=/var/log/custom_backup"
-    echo "MAX_BACKUPS=3"
-    echo "ANALYSIS_CRITERIA=error,critical"
-    echo "REPORT_FORMAT=json"
 }
 
 # Function to load configurations from a file
@@ -45,6 +41,21 @@ function load_config {
     fi
 }
 
+# Function to log debug messages
+function debug_log {
+    if [ "$DEBUG" = true ]; then
+        echo "[DEBUG] $1"
+    fi
+}
+
+# Function to monitor CPU utilization
+function monitor_cpu {
+    while :; do
+        mpstat 1 1 | awk '/Average/ {print "CPU Usage: " 100 - $NF "%"}'
+        sleep "$CPU_MONITOR_INTERVAL"
+    done
+}
+
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -54,6 +65,7 @@ while [[ "$#" -gt 0 ]]; do
         -a|--analysis) ANALYSIS_CRITERIA="$2"; shift ;;
         -f|--format) REPORT_FORMAT="$2"; shift ;;
         -c|--config) load_config "$2"; shift ;;
+        -d|--debug) DEBUG=true ;;
         -h|--help) show_help; exit 0 ;;
         *) echo "Unknown option: $1"; show_help; exit 1 ;;
     esac
@@ -77,15 +89,20 @@ done
 # Create a timestamp
 TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 
+# Start CPU monitoring in the background
+monitor_cpu & CPU_MONITOR_PID=$!
+
 # Check if the log file exists
 if [ -f "$LOG_FILE" ]; then
     # Append user information to the log file
     echo "The user is $NAME, they are $AGE years old, they are from $COUNTRY at $TIMESTAMP" >> "$LOG_FILE"
 
+    debug_log "Copying log file to backup with timestamp."
     # Copy the log file to the backup file with a timestamp
     cp "$LOG_FILE" "${BACKUP_FILE}_$TIMESTAMP"
 
     # Rotate backups: keep only the latest $MAX_BACKUPS backups
+    debug_log "Rotating backups, keeping only the latest $MAX_BACKUPS backups."
     BACKUP_COUNT=$(ls -1 ${BACKUP_FILE}_* 2>/dev/null | wc -l)
     if [ "$BACKUP_COUNT" -gt "$MAX_BACKUPS" ]; then
         # Delete the oldest backups
@@ -98,7 +115,7 @@ if [ -f "$LOG_FILE" ]; then
     IFS=',' read -ra CRITERIA <<< "$ANALYSIS_CRITERIA"
     declare -A ANALYSIS_RESULTS
     for criterion in "${CRITERIA[@]}"; do
-        ANALYSIS_RESULTS[$criterion]=$(awk "/[$criterion]/" "${BACKUP_FILE}_$TIMESTAMP" | wc -l)
+        ANALYSIS_RESULTS[$criterion]=$(grep -i "$criterion" "${BACKUP_FILE}_$TIMESTAMP" | wc -l)
     done
 
     # Generate a detailed report
@@ -111,7 +128,7 @@ if [ -f "$LOG_FILE" ]; then
             echo "Total ${criterion^}s: ${ANALYSIS_RESULTS[$criterion]}" >> "$REPORT_FILE"
             echo "---------------------------------" >> "$REPORT_FILE"
             echo "Top 5 ${criterion^}s:" >> "$REPORT_FILE"
-            awk "/[$criterion]/" "${BACKUP_FILE}_$TIMESTAMP" | head -n 5 >> "$REPORT_FILE"
+            grep -i "$criterion" "${BACKUP_FILE}_$TIMESTAMP" | head -n 5 >> "$REPORT_FILE"
             echo "---------------------------------" >> "$REPORT_FILE"
         done
         echo "Log analysis report saved to $REPORT_FILE"
@@ -126,7 +143,7 @@ if [ -f "$LOG_FILE" ]; then
             echo "    \"$criterion\": {" >> "$REPORT_FILE"
             echo "      \"total\": ${ANALYSIS_RESULTS[$criterion]}," >> "$REPORT_FILE"
             echo "      \"top_5\": [" >> "$REPORT_FILE"
-            awk "/[$criterion]/" "${BACKUP_FILE}_$TIMESTAMP" | head -n 5 | sed 's/^/        \"/;s/$/\",/' | sed '$ s/,$//' >> "$REPORT_FILE"
+            grep -i "$criterion" "${BACKUP_FILE}_$TIMESTAMP" | head -n 5 | sed 's/^/        \"/;s/$/\",/' | sed '$ s/,$//' >> "$REPORT_FILE"
             echo "      ]" >> "$REPORT_FILE"
             echo "    }," >> "$REPORT_FILE"
         done
@@ -152,6 +169,9 @@ fi
 
 echo "Log file cleared successfully!"
 echo "The user is $NAME, he is $AGE years old, from $COUNTRY at $TIMESTAMP" > "${BACKUP_FILE}_$TIMESTAMP"
+
+# Stop CPU monitoring
+kill $CPU_MONITOR_PID
 
 exit 0
 
