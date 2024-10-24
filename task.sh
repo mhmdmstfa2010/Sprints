@@ -54,7 +54,8 @@ function monitor_cpu {
         mpstat 1 1 | awk '/Average/ {print "CPU Usage: " 100 - $NF "%"}'
         sleep "$CPU_MONITOR_INTERVAL"
     done
-}
+ mlkkdikeoikjwje
+ }
 
 # Parse command-line options
 while [[ "$#" -gt 0 ]]; do
